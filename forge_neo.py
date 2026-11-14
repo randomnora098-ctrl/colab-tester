@@ -203,23 +203,51 @@ def clean_stale_configs(forge_path):
         print(f"{GREEN}✓ Membersihkan config lama agar Forge Neo memulai konfigurasi fresh tanpa prompt Enter.{RESET}")
 
 def configure_civitai_api(forge_path, api_key):
-    """Mengintegrasikan Civitai API Key ke CivBrowser dan SD-Hub."""
+    """
+    Mengintegrasikan Civitai API Key langsung ke dalam CivBrowser dan SD-Hub
+    secara native tanpa menggunakan CLI arguments agar launch.py tidak error.
+    """
     if not api_key:
         return
 
     print(f"\n{BOLD}🔑 Mengonfigurasi Civitai API Key untuk CivBrowser & SD-Hub...{RESET}")
 
-    # 1. Konfigurasi default di preload.py CivBrowser (agar dikenali webui tanpa membebani launch.py)
-    civbrowser_preload = forge_path / "extensions" / "sd-webui-civbrowser" / "preload.py"
-    if civbrowser_preload.exists():
-        try:
-            content = civbrowser_preload.read_text(encoding="utf-8")
-            if 'default=""' in content or "default=''" in content:
-                content = content.replace('default=""', f'default="{api_key}"').replace("default=''", f'default="{api_key}"')
-                civbrowser_preload.write_text(content, encoding="utf-8")
-                print(f"{GREEN}✓ API Key disematkan ke default preload CivBrowser.{RESET}")
-        except Exception as e:
-            print(f"{YELLOW}Warning saat patch preload.py CivBrowser: {e}{RESET}")
+    # 1. Patch langsung ke source code CivBrowser
+    ext_civbrowser = forge_path / "extensions" / "sd-webui-civbrowser"
+    if ext_civbrowser.exists():
+        # A. Patch civsfz_settings.py
+        settings_file = ext_civbrowser / "scripts" / "civsfz_settings.py"
+        if settings_file.exists():
+            try:
+                text = settings_file.read_text(encoding="utf-8")
+                text = text.replace('"civsfz_api_key": shared.OptionInfo(\n            "",', f'"civsfz_api_key": shared.OptionInfo(\n            "{api_key}",')
+                text = text.replace('"civsfz_api_key": shared.OptionInfo("",', f'"civsfz_api_key": shared.OptionInfo("{api_key}",')
+                settings_file.write_text(text, encoding="utf-8")
+                print(f"{GREEN}✓ API Key disematkan ke default civsfz_settings.py.{RESET}")
+            except Exception as e:
+                print(f"{YELLOW}Warning patch civsfz_settings: {e}{RESET}")
+
+        # B. Patch civsfz_ui.py
+        ui_file = ext_civbrowser / "scripts" / "civsfz_ui.py"
+        if ui_file.exists():
+            try:
+                text = ui_file.read_text(encoding="utf-8")
+                text = text.replace('self.APIKey = ""', f'self.APIKey = "{api_key}"')
+                ui_file.write_text(text, encoding="utf-8")
+                print(f"{GREEN}✓ API Key disematkan ke default UI CivBrowser.{RESET}")
+            except Exception as e:
+                print(f"{YELLOW}Warning patch civsfz_ui: {e}{RESET}")
+
+        # C. Patch civsfz_api.py
+        api_file = ext_civbrowser / "scripts" / "civsfz_api.py"
+        if api_file.exists():
+            try:
+                text = api_file.read_text(encoding="utf-8")
+                text = text.replace('api_key=getattr(opts,"civsfz_api_key", None)', f'api_key=getattr(opts,"civsfz_api_key", "{api_key}")')
+                api_file.write_text(text, encoding="utf-8")
+                print(f"{GREEN}✓ API Key disematkan ke backend civsfz_api.{RESET}")
+            except Exception as e:
+                print(f"{YELLOW}Warning patch civsfz_api: {e}{RESET}")
 
     # 2. Konfigurasi token untuk SD-Hub di dalam folder ekstensi dan root
     sd_hub_dirs = [
@@ -442,7 +470,7 @@ def launch_webui(forge_dir, extra_args, has_gpu=True, civitai_key=None):
     # Bersihkan file config lama agar tidak memicu prompt 'Press Enter to Continue'
     clean_stale_configs(forge_dir)
     
-    # Argumen optimasi Google Colab
+    # Argumen resmi yang hanya dikenali oleh launch.py
     launch_args = [
         sys.executable,
         "launch.py",
@@ -475,10 +503,11 @@ def launch_webui(forge_dir, extra_args, has_gpu=True, civitai_key=None):
     if civitai_key:
         env["CIVITAI_API_KEY"] = civitai_key
         env["CIVITAI_TOKEN"] = civitai_key
-        # Oper via COMMANDLINE_ARGS agar dibaca oleh webui setelah preload ekstensi terdaftar
-        existing_cmd = env.get("COMMANDLINE_ARGS", "")
-        if "--civsfz-api-key" not in existing_cmd:
-            env["COMMANDLINE_ARGS"] = f"{existing_cmd} --civsfz-api-key {civitai_key}".strip()
+
+    # Bersihkan COMMANDLINE_ARGS dari parameter yang tidak dikenal launch.py
+    raw_cmd = env.get("COMMANDLINE_ARGS", "")
+    clean_cmd = raw_cmd.replace(f"--civsfz-api-key {civitai_key}", "").replace("--civsfz-api-key", "").strip()
+    env["COMMANDLINE_ARGS"] = clean_cmd
 
     print(f"Perintah eksekusi:")
     print(f"{CYAN}{' '.join(launch_args)}{RESET}\n")
@@ -529,15 +558,20 @@ def main():
 
     script_dir = Path(__file__).resolve().parent
 
-    # 1. Konfigurasi Civitai API Key untuk SD-Hub (tanpa mengotori config.json root)
+    # 1. Cek & Pasang ekstensi dari extensions.txt terlebih dahulu
+    extensions_file = Path(args.extensions_file) if args.extensions_file else (script_dir / "extensions.txt")
+    if extensions_file.exists():
+        setup_extensions(forge_path, extensions_file, update=args.update)
+
+    # 2. Konfigurasi Civitai API Key langsung ke source code CivBrowser & config SD-Hub
     configure_civitai_api(forge_path, args.civitai_api_key)
 
-    # 2. Cek & Unduh model dari models.txt
+    # 3. Cek & Unduh model dari models.txt
     models_file = Path(args.models_file) if args.models_file else (script_dir / "models.txt")
     if models_file.exists():
         parse_models_file(models_file, forge_path, civitai_key=args.civitai_api_key)
 
-    # 3. Cek --model-url CLI
+    # 4. Cek --model-url CLI
     models_dir = forge_path / "models" / "Stable-diffusion"
     models_dir.mkdir(parents=True, exist_ok=True)
     if args.model_url:
@@ -546,18 +580,13 @@ def main():
             filename += ".safetensors"
         smart_download(args.model_url, models_dir / filename, desc="[CHECKPOINT] Custom CLI", civitai_key=args.civitai_api_key)
 
-    # 4. Fallback starter model jika folder checkpoint kosong
+    # 5. Fallback starter model jika folder checkpoint kosong
     existing_checkpoints = list(models_dir.glob("*.safetensors")) + list(models_dir.glob("*.ckpt"))
     if not existing_checkpoints and args.starter_model:
         starter_url = "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors"
         smart_download(starter_url, models_dir / "DreamShaper_8_pruned.safetensors", desc="[CHECKPOINT] Starter DreamShaper 8")
     elif existing_checkpoints:
         print(f"{GREEN}✓ Checkpoint model terdeteksi di Forge: {[f.name for f in existing_checkpoints]}{RESET}")
-
-    # 5. Cek & Pasang ekstensi dari extensions.txt
-    extensions_file = Path(args.extensions_file) if args.extensions_file else (script_dir / "extensions.txt")
-    if extensions_file.exists():
-        setup_extensions(forge_path, extensions_file, update=args.update)
 
     # 6. Langsung jalankan WebUI!
     launch_webui(forge_path, unknown, has_gpu=has_gpu, civitai_key=args.civitai_api_key)
