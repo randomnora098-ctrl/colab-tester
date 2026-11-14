@@ -10,3 +10,6 @@ checkpoints/
 .env
 venv/
 env/
+
+id_ed25519*
+
