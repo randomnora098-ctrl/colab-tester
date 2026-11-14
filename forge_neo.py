@@ -209,7 +209,19 @@ def configure_civitai_api(forge_path, api_key):
 
     print(f"\n{BOLD}🔑 Mengonfigurasi Civitai API Key untuk CivBrowser & SD-Hub...{RESET}")
 
-    # Konfigurasi token untuk SD-Hub di dalam folder ekstensi dan root
+    # 1. Konfigurasi default di preload.py CivBrowser (agar dikenali webui tanpa membebani launch.py)
+    civbrowser_preload = forge_path / "extensions" / "sd-webui-civbrowser" / "preload.py"
+    if civbrowser_preload.exists():
+        try:
+            content = civbrowser_preload.read_text(encoding="utf-8")
+            if 'default=""' in content or "default=''" in content:
+                content = content.replace('default=""', f'default="{api_key}"').replace("default=''", f'default="{api_key}"')
+                civbrowser_preload.write_text(content, encoding="utf-8")
+                print(f"{GREEN}✓ API Key disematkan ke default preload CivBrowser.{RESET}")
+        except Exception as e:
+            print(f"{YELLOW}Warning saat patch preload.py CivBrowser: {e}{RESET}")
+
+    # 2. Konfigurasi token untuk SD-Hub di dalam folder ekstensi dan root
     sd_hub_dirs = [
         forge_path,
         forge_path / "extensions" / "sd-hub",
@@ -246,7 +258,6 @@ def configure_civitai_api(forge_path, api_key):
                 except Exception:
                     pass
     print(f"{GREEN}✓ API Key dikonfigurasi untuk SD-Hub ({api_key[:6]}...{api_key[-4:]}).{RESET}")
-    print(f"{GREEN}✓ API Key akan diinjeksi via CLI argument untuk CivBrowser (--civsfz-api-key).{RESET}")
 
 def smart_download(url, dest_file, desc="Asset", civitai_key=None):
     """Download menggunakan aria2c (jika ada) atau curl dengan resume support dan Civitai token auth."""
@@ -440,10 +451,6 @@ def launch_webui(forge_dir, extra_args, has_gpu=True, civitai_key=None):
         "--theme", "dark",                   # Tema gelap
         "--skip-version-check",              # Nonaktifkan version check warning
     ]
-    
-    # Sertakan Civitai API key untuk CivBrowser
-    if civitai_key:
-        launch_args.extend(["--civsfz-api-key", civitai_key])
 
     if has_gpu:
         launch_args.extend([
@@ -468,6 +475,10 @@ def launch_webui(forge_dir, extra_args, has_gpu=True, civitai_key=None):
     if civitai_key:
         env["CIVITAI_API_KEY"] = civitai_key
         env["CIVITAI_TOKEN"] = civitai_key
+        # Oper via COMMANDLINE_ARGS agar dibaca oleh webui setelah preload ekstensi terdaftar
+        existing_cmd = env.get("COMMANDLINE_ARGS", "")
+        if "--civsfz-api-key" not in existing_cmd:
+            env["COMMANDLINE_ARGS"] = f"{existing_cmd} --civsfz-api-key {civitai_key}".strip()
 
     print(f"Perintah eksekusi:")
     print(f"{CYAN}{' '.join(launch_args)}{RESET}\n")
