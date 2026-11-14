@@ -7,6 +7,12 @@ Repo: https://github.com/Haoming02/sd-webui-forge-classic.git (branch: neo)
 
 import os
 import sys
+
+# Nonaktifkan TensorFlow pada HuggingFace Transformers untuk mencegah konflik Protobuf
+os.environ["TRANSFORMERS_NO_TF"] = "1"
+os.environ["USE_TF"] = "0"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
 import subprocess
 import shutil
 import time
@@ -121,10 +127,10 @@ def install_forge_requirements(forge_path):
         except Exception as e:
             print(f"{YELLOW}Warning saat install requirements: {e}{RESET}")
 
-def ensure_gradio_compat():
+def ensure_dependencies_compat():
     """
-    Memastikan Gradio berada di versi 4.40.0 dan ekstensi slider terpasang.
-    Colab secara default membawa Gradio 6.x yang tidak kompatibel dengan Forge UI.
+    Memastikan Gradio 4.40.0 dan Protobuf modern (>=5.26.1) terpasang.
+    Mencegah crash 'cannot import name runtime_version from google.protobuf'.
     """
     need_fix = False
     try:
@@ -133,22 +139,25 @@ def ensure_gradio_compat():
             need_fix = True
         import gradio_rangeslider
         import gradio_imageslider
+        import google.protobuf
+        from google.protobuf import runtime_version
     except (ImportError, Exception):
         need_fix = True
 
     if need_fix:
-        print(f"\n{YELLOW}🔧 Memperbaiki Gradio ke versi 4.40.0 & memasang dependensi UI...{RESET}")
+        print(f"\n{YELLOW}🔧 Menyelaraskan dependensi Colab (Gradio 4.40.0, Protobuf >= 5.26.1)...{RESET}")
         pkgs = [
             "gradio==4.40.0",
             "gradio-rangeslider==0.0.8",
-            "gradio-imageslider==0.0.20"
+            "gradio-imageslider==0.0.20",
+            "protobuf>=5.26.1"
         ]
         cmd = [sys.executable, "-m", "pip", "install", "-q", "--force-reinstall"] + pkgs
         try:
             subprocess.run(cmd, check=True)
-            print(f"{GREEN}✓ Berhasil memasang Gradio 4.40.0 & ekstensi UI (RangeSlider & ImageSlider)!{RESET}")
+            print(f"{GREEN}✓ Gradio 4.40.0 & Protobuf (modern) berhasil diselaraskan!{RESET}")
         except Exception as e:
-            print(f"{YELLOW}Warning saat memasang Gradio: {e}{RESET}")
+            print(f"{YELLOW}Warning saat menyelaraskan dependensi: {e}{RESET}")
 
 def mark_installed(forge_path):
     marker = forge_path / ".installed_marker"
@@ -167,7 +176,7 @@ def perform_full_installation(forge_path, force=False):
     setup_directories(forge_path)
     install_system_tools()
     install_forge_requirements(forge_path)
-    ensure_gradio_compat()
+    ensure_dependencies_compat()
     mark_installed(forge_path)
     print(f"\n{GREEN}{BOLD}🎉 Instalasi Forge Neo Selesai 100%!{RESET}\n")
 
@@ -298,13 +307,19 @@ def launch_webui(forge_dir, extra_args, has_gpu=True):
     if extra_args:
         launch_args.extend(extra_args)
         
+    # Pastikan env var nonaktifkan TF diteruskan ke child process
+    env = os.environ.copy()
+    env["TRANSFORMERS_NO_TF"] = "1"
+    env["USE_TF"] = "0"
+    env["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
     print(f"Perintah eksekusi:")
     print(f"{CYAN}{' '.join(launch_args)}{RESET}\n")
     print(f"{YELLOW}👉 Perhatikan output di bawah hingga link `https://xxxxxxxx.gradio.live` muncul.{RESET}")
     print(f"{YELLOW}👉 Buka link publik tersebut untuk menggunakan WebUI Forge Neo.{RESET}\n")
     
     os.chdir(forge_dir)
-    subprocess.run(launch_args)
+    subprocess.run(launch_args, env=env)
 
 def main():
     parser = argparse.ArgumentParser(description="Forge Neo Launcher untuk Colab T4 GPU")
@@ -336,7 +351,7 @@ def main():
         print(f"\n{GREEN}{BOLD}⚡ Status: Forge Neo & seluruh requirement SUDAH TERINSTALL!{RESET}")
         print(f"{CYAN}⏩ Melewati proses instalasi. Langsung menuju persiapan running...{RESET}")
         setup_directories(forge_path)
-        ensure_gradio_compat()
+        ensure_dependencies_compat()
         if args.update:
             print("Memperbarui kode Forge Neo...")
             subprocess.run(["git", "-C", str(forge_path), "pull"], check=False)
