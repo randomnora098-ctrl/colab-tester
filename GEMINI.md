@@ -10,8 +10,9 @@
 ## Standar Operasi
 1. Semua logika kode ditulis di file `.py` di dalam folder ini.
 2. Konfigurasi model/LoRA/VAE ditulis di `models.txt`.
-3. Saat ada pembaruan kode atau model, langsung lakukan commit dan push ke `main`.
-4. Di Google Colab, user cukup menjalankan:
+3. Konfigurasi ekstensi WebUI ditulis di `extensions.txt`.
+4. Saat ada pembaruan kode, model, atau ekstensi, langsung lakukan commit dan push ke `main`.
+5. Di Google Colab, user cukup menjalankan:
    ```bash
    !git pull && python <nama_script>.py
    ```

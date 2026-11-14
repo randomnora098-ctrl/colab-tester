@@ -1,0 +1,30 @@
+# ==============================================================================
+# DAFTAR EKSTENSI UNTUK FORGE NEO (GOOGLE COLAB)
+# ==============================================================================
+# Format:
+#   <GIT_URL>
+#   atau
+#   <GIT_URL> -> <nama_folder_kustom>
+#
+# Baris yang diawali dengan tanda '#' adalah komentar dan akan diabaikan.
+# Tambahkan atau hapus ekstensi di sini tanpa perlu mengubah notebook di Colab.
+# ==============================================================================
+
+# 1. CivBrowser (Civitai Browser)
+# Jelajahi, cari, preview, dan download model Civitai langsung di tab WebUI
+https://github.com/SignalFlagZ/sd-webui-civbrowser.git
+
+# 2. SD-Hub (gutris1/sd-hub)
+# Download batch dari Civitai/HuggingFace/Drive, galeri output, & manajemen file
+https://github.com/gutris1/sd-hub.git
+
+# 3. ADetailer (After Detailer)
+# Deteksi dan perbaikan otomatis wajah/mata/tangan menggunakan YOLO models
+https://github.com/Bing-su/adetailer.git
+
+# 4. Auto-Text Prompting (Tag Autocomplete)
+# Mempermudah prompting: memunculkan saran kata kunci (Danbooru/e621 tags, wildcards, LoRA) otomatis saat mengetik
+https://github.com/DominikDoom/a1111-sd-webui-tagcomplete.git
+
+# (Opsional) Prompt All-in-One: Terjemahan prompt bahasa Indonesia/Inggris & tag helper
+# https://github.com/Physton/sd-webui-prompt-all-in-one.git

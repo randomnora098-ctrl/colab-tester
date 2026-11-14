@@ -36,7 +36,7 @@ def banner():
     print(f"{RESET}")
 
 def check_environment():
-    print(f"{BOLD}[1/4] Memeriksa Lingkungan GPU & Sistem...{RESET}")
+    print(f"{BOLD}[1/5] Memeriksa Lingkungan GPU & Sistem...{RESET}")
     has_gpu = False
     try:
         import torch
@@ -171,7 +171,7 @@ def perform_full_installation(forge_path, force=False):
         print(f"{YELLOW}Menghapus instalasi lama untuk instalasi ulang bersih...{RESET}")
         shutil.rmtree(forge_path, ignore_errors=True)
 
-    print(f"\n{BOLD}[2/4] Melakukan Instalasi Forge Neo & Dependensi...{RESET}")
+    print(f"\n{BOLD}[2/5] Melakukan Instalasi Forge Neo & Dependensi...{RESET}")
     clone_forge_neo(forge_path)
     setup_directories(forge_path)
     install_system_tools()
@@ -220,7 +220,7 @@ def parse_models_file(models_file_path, forge_path):
     if not models_file.exists():
         return
 
-    print(f"\n{BOLD}[3/4] Memeriksa Model & Asset dari {models_file.name}...{RESET}")
+    print(f"\n{BOLD}[3/5] Memeriksa Model & Asset dari {models_file.name}...{RESET}")
     
     category_map = {
         "checkpoints": forge_path / "models" / "Stable-diffusion",
@@ -279,8 +279,73 @@ def parse_models_file(models_file_path, forge_path):
             smart_download(url, target_folder / filename, desc=f"[{current_category.upper()}] {filename}")
             total_processed += 1
 
+def setup_extensions(forge_path, extensions_file_path, update=False):
+    """Membaca extensions.txt dan mengkloning atau memperbarui ekstensi."""
+    ext_file = Path(extensions_file_path)
+    if not ext_file.exists():
+        return
+
+    ext_dir = forge_path / "extensions"
+    ext_dir.mkdir(parents=True, exist_ok=True)
+    
+    print(f"\n{BOLD}[4/5] Memeriksa & Memasang Ekstensi dari {ext_file.name}...{RESET}")
+    total_ext = 0
+
+    with open(ext_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            if "->" in line:
+                parts = line.split("->", 1)
+                url = parts[0].strip()
+                folder_name = parts[1].strip()
+            else:
+                url = line
+                folder_name = url.rstrip("/").split("/")[-1].replace(".git", "")
+
+            if not url.startswith("http://") and not url.startswith("https://"):
+                continue
+
+            target_ext_path = ext_dir / folder_name
+
+            if not target_ext_path.exists():
+                print(f"Mengkloning ekstensi: {folder_name}...")
+                cmd = ["git", "clone", "--depth", "1", url, str(target_ext_path)]
+                res = subprocess.run(cmd)
+                if res.returncode == 0:
+                    print(f"{GREEN}✓ Ekstensi {folder_name} berhasil dipasang.{RESET}")
+                    # Cek requirements.txt spesifik milik ekstensi
+                    req_path = target_ext_path / "requirements.txt"
+                    if req_path.exists():
+                        print(f"  Memasang requirement untuk {folder_name}...")
+                        cmd_req = ["uv", "pip", "install", "--system", "-r", str(req_path)] if shutil.which("uv") else [sys.executable, "-m", "pip", "install", "-q", "-r", str(req_path)]
+                        subprocess.run(cmd_req, check=False)
+                else:
+                    print(f"{RED}Gagal mengkloning ekstensi {folder_name}{RESET}")
+            else:
+                print(f"{GREEN}✓ Ekstensi {folder_name} sudah terpasang.{RESET}")
+                if update:
+                    print(f"  Memperbarui {folder_name} (git pull)...")
+                    subprocess.run(["git", "-C", str(target_ext_path), "pull"], check=False)
+
+            total_ext += 1
+
+    # Khusus ADetailer: Pastikan ultralytics terpasang
+    if (ext_dir / "adetailer").exists():
+        try:
+            import ultralytics
+        except ImportError:
+            print("Memasang dependensi `ultralytics` untuk ADetailer (YOLO)...")
+            cmd_yolo = ["uv", "pip", "install", "--system", "ultralytics"] if shutil.which("uv") else [sys.executable, "-m", "pip", "install", "-q", "ultralytics"]
+            subprocess.run(cmd_yolo, check=False)
+
+    if total_ext > 0:
+        print(f"{GREEN}✓ Seluruh ekstensi ({total_ext}) siap digunakan!{RESET}")
+
 def launch_webui(forge_dir, extra_args, has_gpu=True):
-    print(f"\n{BOLD}[4/4] Menjalankan Forge Neo WebUI...{RESET}")
+    print(f"\n{BOLD}[5/5] Menjalankan Forge Neo WebUI...{RESET}")
     
     # Argumen optimasi Google Colab
     launch_args = [
@@ -327,6 +392,8 @@ def main():
                         help="Lokasi instalasi Forge Neo")
     parser.add_argument("--models-file", default=None,
                         help="Path ke file models.txt")
+    parser.add_argument("--extensions-file", default=None,
+                        help="Path ke file extensions.txt")
     parser.add_argument("--model-url", default=None, 
                         help="URL file model (.safetensors) langsung")
     parser.add_argument("--starter-model", action="store_true",
@@ -334,7 +401,7 @@ def main():
     parser.add_argument("--force-reinstall", action="store_true",
                         help="Paksa instal ulang bersih Forge Neo & dependensi")
     parser.add_argument("--update", action="store_true",
-                        help="Perbarui repo Forge Neo ke commit terbaru (git pull)")
+                        help="Perbarui repo Forge Neo & seluruh ekstensi ke commit terbaru")
     args, unknown = parser.parse_known_args()
 
     banner()
@@ -356,8 +423,9 @@ def main():
             print("Memperbarui kode Forge Neo...")
             subprocess.run(["git", "-C", str(forge_path), "pull"], check=False)
 
-    # 1. Cek & Unduh model dari models.txt
     script_dir = Path(__file__).resolve().parent
+
+    # 1. Cek & Unduh model dari models.txt
     models_file = Path(args.models_file) if args.models_file else (script_dir / "models.txt")
     if models_file.exists():
         parse_models_file(models_file, forge_path)
@@ -379,7 +447,12 @@ def main():
     elif existing_checkpoints:
         print(f"{GREEN}✓ Checkpoint model terdeteksi di Forge: {[f.name for f in existing_checkpoints]}{RESET}")
 
-    # 4. Langsung jalankan WebUI!
+    # 4. Cek & Pasang ekstensi dari extensions.txt
+    extensions_file = Path(args.extensions_file) if args.extensions_file else (script_dir / "extensions.txt")
+    if extensions_file.exists():
+        setup_extensions(forge_path, extensions_file, update=args.update)
+
+    # 5. Langsung jalankan WebUI!
     launch_webui(forge_path, unknown, has_gpu=has_gpu)
 
 if __name__ == "__main__":
