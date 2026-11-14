@@ -184,36 +184,32 @@ def perform_full_installation(forge_path, force=False):
     mark_installed(forge_path)
     print(f"\n{GREEN}{BOLD}🎉 Instalasi Forge Neo Selesai 100%!{RESET}\n")
 
+def clean_stale_configs(forge_path):
+    """
+    Membersihkan config.json dan ui-config.json lama.
+    Forge Neo akan men-generate konfigurasi baru yang kompatibel secara otomatis,
+    dan ini mencegah munculnya alert 'You are updating from an old version... Press Enter to Continue...'.
+    """
+    cleaned = False
+    for cfg_name in ["config.json", "ui-config.json"]:
+        cfg_file = forge_path / cfg_name
+        if cfg_file.exists():
+            try:
+                cfg_file.unlink()
+                cleaned = True
+            except Exception:
+                pass
+    if cleaned:
+        print(f"{GREEN}✓ Membersihkan config lama agar Forge Neo memulai konfigurasi fresh tanpa prompt Enter.{RESET}")
+
 def configure_civitai_api(forge_path, api_key):
-    """Mengintegrasikan Civitai API Key ke CivBrowser, SD-Hub, dan WebUI settings."""
+    """Mengintegrasikan Civitai API Key ke CivBrowser dan SD-Hub."""
     if not api_key:
         return
 
-    print(f"\n{BOLD}🔑 Mengonfigurasi Civitai API Key ke CivBrowser & SD-Hub...{RESET}")
-    
-    # 1. Update config.json di root WebUI Forge (untuk CivBrowser & UI)
-    config_file = forge_path / "config.json"
-    config_data = {}
-    if config_file.exists():
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
-        except Exception:
-            config_data = {}
+    print(f"\n{BOLD}🔑 Mengonfigurasi Civitai API Key untuk CivBrowser & SD-Hub...{RESET}")
 
-    config_data["civsfz_api_key"] = api_key
-    config_data["civitai_api_key"] = api_key
-    config_data["sd_hub_civitai_api_key"] = api_key
-    config_data["sdhub_civitai_api_key"] = api_key
-
-    try:
-        with open(config_file, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, indent=2)
-        print(f"{GREEN}✓ API Key disematkan ke config.json (CivBrowser & WebUI).{RESET}")
-    except Exception as e:
-        print(f"{YELLOW}Warning saat menulis config.json: {e}{RESET}")
-
-    # 2. Update konfigurasi token SD-Hub
+    # Konfigurasi token untuk SD-Hub di dalam folder ekstensi dan root
     sd_hub_dirs = [
         forge_path,
         forge_path / "extensions" / "sd-hub",
@@ -249,7 +245,8 @@ def configure_civitai_api(forge_path, api_key):
                         json.dump(existing, f, indent=2)
                 except Exception:
                     pass
-    print(f"{GREEN}✓ API Key berhasil dikonfigurasi untuk SD-Hub.{RESET}")
+    print(f"{GREEN}✓ API Key dikonfigurasi untuk SD-Hub ({api_key[:6]}...{api_key[-4:]}).{RESET}")
+    print(f"{GREEN}✓ API Key akan diinjeksi via CLI argument untuk CivBrowser (--civsfz-api-key).{RESET}")
 
 def smart_download(url, dest_file, desc="Asset", civitai_key=None):
     """Download menggunakan aria2c (jika ada) atau curl dengan resume support dan Civitai token auth."""
@@ -430,6 +427,9 @@ def setup_extensions(forge_path, extensions_file_path, update=False):
 
 def launch_webui(forge_dir, extra_args, has_gpu=True, civitai_key=None):
     print(f"\n{BOLD}[5/5] Menjalankan Forge Neo WebUI...{RESET}")
+
+    # Bersihkan file config lama agar tidak memicu prompt 'Press Enter to Continue'
+    clean_stale_configs(forge_dir)
     
     # Argumen optimasi Google Colab
     launch_args = [
@@ -518,7 +518,7 @@ def main():
 
     script_dir = Path(__file__).resolve().parent
 
-    # 1. Konfigurasi Civitai API Key ke CivBrowser & SD-Hub
+    # 1. Konfigurasi Civitai API Key untuk SD-Hub (tanpa mengotori config.json root)
     configure_civitai_api(forge_path, args.civitai_api_key)
 
     # 2. Cek & Unduh model dari models.txt
@@ -547,9 +547,6 @@ def main():
     extensions_file = Path(args.extensions_file) if args.extensions_file else (script_dir / "extensions.txt")
     if extensions_file.exists():
         setup_extensions(forge_path, extensions_file, update=args.update)
-
-    # Pastikan konfigurasi token SD-Hub diperbarui kembali setelah ekstensi terkloning
-    configure_civitai_api(forge_path, args.civitai_api_key)
 
     # 6. Langsung jalankan WebUI!
     launch_webui(forge_path, unknown, has_gpu=has_gpu, civitai_key=args.civitai_api_key)
