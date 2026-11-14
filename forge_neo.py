@@ -31,6 +31,7 @@ def banner():
 
 def check_environment():
     print(f"{BOLD}[1/4] Memeriksa Lingkungan GPU & Sistem...{RESET}")
+    has_gpu = False
     try:
         import torch
         if torch.cuda.is_available():
@@ -39,12 +40,20 @@ def check_environment():
             print(f"{GREEN}✓ GPU Aktif: {device_name} ({vram_gb:.2f} GB VRAM){RESET}")
             if "T4" in device_name:
                 print(f"{GREEN}✓ Optimalisasi Tesla T4 GPU diaktifkan.{RESET}")
-        else:
-            print(f"{RED}⚠️ Peringatan: GPU tidak terdeteksi!{RESET}")
-            print(f"{YELLOW}Pastikan Anda mengubah jenis runtime di Google Colab:{RESET}")
-            print(f"{YELLOW}  Runtime -> Change runtime type -> T4 GPU{RESET}")
+            has_gpu = True
     except ImportError:
-        print(f"{YELLOW}PyTorch belum terdeteksi. Colab akan menggunakan PyTorch default.{RESET}")
+        pass
+
+    if not has_gpu:
+        print(f"\n{RED}{BOLD}" + "=" * 65)
+        print("⚠️ PERINGATAN KRUSIAL: GPU TIDAK TERDETEKSI (RUNNING DI CPU)!")
+        print("Forge Neo membutuhkan GPU T4 agar bisa berjalan cepat dan optimal.")
+        print("Cara Mengaktifkan GPU di Google Colab:")
+        print("  1. Buka menu atas: Runtime -> Change runtime type")
+        print("  2. Pilih Hardware accelerator: T4 GPU")
+        print("  3. Klik Save, lalu jalankan ulang sel notebook.")
+        print("=" * 65 + f"{RESET}\n")
+    return has_gpu
 
 def is_forge_installed(forge_path):
     """Mengecek apakah Forge Neo dan dependensinya sudah terinstall."""
@@ -112,6 +121,35 @@ def install_forge_requirements(forge_path):
         except Exception as e:
             print(f"{YELLOW}Warning saat install requirements: {e}{RESET}")
 
+def ensure_gradio_compat():
+    """
+    Memastikan Gradio berada di versi 4.40.0 dan ekstensi slider terpasang.
+    Colab secara default membawa Gradio 6.x yang tidak kompatibel dengan Forge UI.
+    """
+    need_fix = False
+    try:
+        import gradio
+        if getattr(gradio, "__version__", "") != "4.40.0":
+            need_fix = True
+        import gradio_rangeslider
+        import gradio_imageslider
+    except (ImportError, Exception):
+        need_fix = True
+
+    if need_fix:
+        print(f"\n{YELLOW}🔧 Memperbaiki Gradio ke versi 4.40.0 & memasang dependensi UI...{RESET}")
+        pkgs = [
+            "gradio==4.40.0",
+            "gradio-rangeslider==0.0.8",
+            "gradio-imageslider==0.0.20"
+        ]
+        cmd = [sys.executable, "-m", "pip", "install", "-q", "--force-reinstall"] + pkgs
+        try:
+            subprocess.run(cmd, check=True)
+            print(f"{GREEN}✓ Berhasil memasang Gradio 4.40.0 & ekstensi UI (RangeSlider & ImageSlider)!{RESET}")
+        except Exception as e:
+            print(f"{YELLOW}Warning saat memasang Gradio: {e}{RESET}")
+
 def mark_installed(forge_path):
     marker = forge_path / ".installed_marker"
     with open(marker, "w", encoding="utf-8") as f:
@@ -129,6 +167,7 @@ def perform_full_installation(forge_path, force=False):
     setup_directories(forge_path)
     install_system_tools()
     install_forge_requirements(forge_path)
+    ensure_gradio_compat()
     mark_installed(forge_path)
     print(f"\n{GREEN}{BOLD}🎉 Instalasi Forge Neo Selesai 100%!{RESET}\n")
 
@@ -231,23 +270,30 @@ def parse_models_file(models_file_path, forge_path):
             smart_download(url, target_folder / filename, desc=f"[{current_category.upper()}] {filename}")
             total_processed += 1
 
-def launch_webui(forge_dir, extra_args):
+def launch_webui(forge_dir, extra_args, has_gpu=True):
     print(f"\n{BOLD}[4/4] Menjalankan Forge Neo WebUI...{RESET}")
     
-    # Argumen optimasi Google Colab T4
+    # Argumen optimasi Google Colab
     launch_args = [
         sys.executable,
         "launch.py",
         "--share",                           # Wajib untuk link gradio.live di Colab
         "--enable-insecure-extension-access", # Mengizinkan install extensions via UI
         "--theme", "dark",                   # Tema gelap
-        "--cuda-stream",                     # Optimasi stream CUDA
-        "--pin-shared-memory"                # Kecepatan swap memori
+        "--skip-version-check",              # Nonaktifkan version check warning
     ]
     
-    # Jika uv tersedia, gunakan --uv
-    if shutil.which("uv"):
-        launch_args.append("--uv")
+    if has_gpu:
+        launch_args.extend([
+            "--cuda-stream",                 # Optimasi stream CUDA
+            "--pin-shared-memory"            # Kecepatan swap memori
+        ])
+    else:
+        launch_args.extend([
+            "--use-cpu", "all",
+            "--no-half",
+            "--skip-torch-cuda-test"
+        ])
 
     if extra_args:
         launch_args.extend(extra_args)
@@ -277,7 +323,7 @@ def main():
     args, unknown = parser.parse_known_args()
 
     banner()
-    check_environment()
+    has_gpu = check_environment()
     
     forge_path = Path(args.dir).resolve()
 
@@ -290,6 +336,7 @@ def main():
         print(f"\n{GREEN}{BOLD}⚡ Status: Forge Neo & seluruh requirement SUDAH TERINSTALL!{RESET}")
         print(f"{CYAN}⏩ Melewati proses instalasi. Langsung menuju persiapan running...{RESET}")
         setup_directories(forge_path)
+        ensure_gradio_compat()
         if args.update:
             print("Memperbarui kode Forge Neo...")
             subprocess.run(["git", "-C", str(forge_path), "pull"], check=False)
@@ -318,7 +365,7 @@ def main():
         print(f"{GREEN}✓ Checkpoint model terdeteksi di Forge: {[f.name for f in existing_checkpoints]}{RESET}")
 
     # 4. Langsung jalankan WebUI!
-    launch_webui(forge_path, unknown)
+    launch_webui(forge_path, unknown, has_gpu=has_gpu)
 
 if __name__ == "__main__":
     main()
