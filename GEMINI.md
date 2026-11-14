@@ -9,8 +9,13 @@
 
 ## Standar Operasi
 1. Semua logika kode ditulis di file `.py` di dalam folder ini.
-2. Saat ada pembaruan kode, langsung lakukan commit dan push ke `main`.
-3. Di Google Colab, user cukup menjalankan:
+2. Konfigurasi model/LoRA/VAE ditulis di `models.txt`.
+3. Saat ada pembaruan kode atau model, langsung lakukan commit dan push ke `main`.
+4. Di Google Colab, user cukup menjalankan:
    ```bash
    !git pull && python <nama_script>.py
+   ```
+   Contoh Forge Neo:
+   ```bash
+   !git pull && python forge_neo.py
    ```

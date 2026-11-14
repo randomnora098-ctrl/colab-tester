@@ -1,0 +1,34 @@
+# ==============================================================================
+# DAFTAR MODEL & ASSET UNTUK FORGE NEO (GOOGLE COLAB)
+# ==============================================================================
+# Format:
+#   [kategori]
+#   <URL_DOWNLOAD>
+#   atau
+#   <URL_DOWNLOAD> -> <nama_file_kustom.safetensors>
+#
+# Baris yang diawali dengan tanda pagar '#' adalah komentar dan akan diabaikan.
+# ==============================================================================
+
+[checkpoints]
+# Model Checkpoint utama (SD 1.5, SDXL, Flux, dsb.)
+# Contoh default: DreamShaper 8 (SD 1.5)
+https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors
+
+[loras]
+# Masukkan link LoRA di sini (disimpan ke models/Lora)
+# Contoh:
+# https://civitai.com/api/download/models/XXXXXX -> my_lora.safetensors
+
+[vaes]
+# Masukkan link VAE di sini (disimpan ke models/VAE)
+# Contoh:
+# https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors
+
+[controlnets]
+# Masukkan link model ControlNet di sini (disimpan ke models/ControlNet)
+
+[upscalers]
+# Masukkan model upscaler di sini (disimpan ke models/ESRGAN)
+# Contoh:
+# https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x-UltraSharp.pth

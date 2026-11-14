@@ -12,6 +12,7 @@ import shutil
 import time
 import argparse
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 
 # Styling
 CYAN = "\033[96m"
@@ -23,9 +24,9 @@ RESET = "\033[0m"
 
 def banner():
     print(f"{CYAN}{BOLD}")
-    print("=" * 60)
-    print("      🚀 FORGE NEO LAUNCHER - GOOGLE COLAB (T4 GPU)")
-    print("=" * 60)
+    print("=" * 65)
+    print("       🚀 FORGE NEO LAUNCHER - GOOGLE COLAB (T4 GPU)")
+    print("=" * 65)
     print(f"{RESET}")
 
 def check_environment():
@@ -77,21 +78,128 @@ def clone_forge_neo(target_dir):
         print(f"{GREEN}✓ Forge Neo sudah yang terbaru.{RESET}")
 
 def install_dependencies():
-    print(f"\n{BOLD}[4/5] Memastikan Paket uv & Dependensi...{RESET}")
+    print(f"\n{BOLD}[4/5] Memastikan Paket uv & Tools Download Cepat...{RESET}")
+    # Install uv
     try:
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "uv"], check=True)
         print(f"{GREEN}✓ `uv` siap digunakan untuk instalasi dependensi super cepat.{RESET}")
     except Exception as e:
         print(f"{YELLOW}Gagal menginstall uv ({e}), akan menggunakan pip standar.{RESET}")
 
-def download_file(url, destination_path, desc="File"):
-    if not url:
+    # Install aria2 jika di Colab dan belum terinstall
+    if shutil.which("aria2c") is None and os.path.exists("/usr/bin/apt-get"):
+        print("Menginstall aria2 untuk download multi-threaded berkecepatan tinggi...")
+        try:
+            subprocess.run(["apt-get", "update", "-qq"], check=False)
+            subprocess.run(["apt-get", "install", "-y", "-qq", "aria2"], check=False)
+            if shutil.which("aria2c"):
+                print(f"{GREEN}✓ aria2c berhasil diinstall.{RESET}")
+        except Exception:
+            pass
+
+def smart_download(url, dest_file, desc="Asset"):
+    """Download menggunakan aria2c (jika ada) atau curl dengan resume support."""
+    dest_file = Path(dest_file)
+    dest_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Cek apakah file sudah ada dan ukurannya > 1MB
+    if dest_file.exists() and dest_file.stat().st_size > 1024 * 1024:
+        size_mb = dest_file.stat().st_size / (1024 * 1024)
+        print(f"{GREEN}✓ {desc} sudah ada: {dest_file.name} ({size_mb:.1f} MB) -> Dilewati.{RESET}")
         return
-    print(f"Mengunduh {desc} dari {url}...")
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
-    cmd = ["curl", "-L", "-o", str(destination_path), url]
+
+    print(f"Mengunduh {desc}: {dest_file.name}...")
+    print(f"URL: {url}")
+    
+    if shutil.which("aria2c"):
+        cmd = [
+            "aria2c",
+            "--console-log-level=error",
+            "-c", "-x", "16", "-s", "16", "-k", "1M",
+            "-d", str(dest_file.parent),
+            "-o", dest_file.name,
+            url
+        ]
+        res = subprocess.run(cmd)
+        if res.returncode == 0:
+            print(f"{GREEN}✓ Berhasil mengunduh {desc}: {dest_file.name}{RESET}")
+            return
+        else:
+            print(f"{YELLOW}aria2c gagal, mencoba fallback menggunakan curl...{RESET}")
+
+    # Fallback to curl
+    cmd = ["curl", "-L", "-C", "-", "-o", str(dest_file), url]
     subprocess.run(cmd, check=True)
-    print(f"{GREEN}✓ Selesai mengunduh {desc}: {destination_path.name}{RESET}")
+    print(f"{GREEN}✓ Berhasil mengunduh {desc}: {dest_file.name}{RESET}")
+
+def parse_models_file(models_file_path, forge_path):
+    """Membaca models.txt dan mengunduh asset ke folder Forge masing-masing."""
+    models_file = Path(models_file_path)
+    if not models_file.exists():
+        return
+
+    print(f"\n{BOLD}📂 Membaca Konfigurasi Model dari: {models_file.name}{RESET}")
+    
+    category_map = {
+        "checkpoints": forge_path / "models" / "Stable-diffusion",
+        "checkpoint": forge_path / "models" / "Stable-diffusion",
+        "models": forge_path / "models" / "Stable-diffusion",
+        "loras": forge_path / "models" / "Lora",
+        "lora": forge_path / "models" / "Lora",
+        "vaes": forge_path / "models" / "VAE",
+        "vae": forge_path / "models" / "VAE",
+        "controlnets": forge_path / "models" / "ControlNet",
+        "controlnet": forge_path / "models" / "ControlNet",
+        "upscalers": forge_path / "models" / "ESRGAN",
+        "upscaler": forge_path / "models" / "ESRGAN",
+        "embeddings": forge_path / "embeddings",
+        "embedding": forge_path / "embeddings",
+    }
+    
+    current_category = "checkpoints"
+    total_processed = 0
+
+    with open(models_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            
+            # Deteksi section header [category]
+            if line.startswith("[") and line.endswith("]"):
+                current_category = line[1:-1].strip().lower()
+                continue
+            
+            # Parsing URL & custom filename (URL -> custom_name.ext)
+            if "->" in line:
+                parts = line.split("->", 1)
+                url = parts[0].strip()
+                custom_filename = parts[1].strip()
+            else:
+                url = line
+                custom_filename = None
+
+            if not url.startswith("http://") and not url.startswith("https://"):
+                continue
+
+            target_folder = category_map.get(current_category, forge_path / "models" / "Stable-diffusion")
+
+            if custom_filename:
+                filename = custom_filename
+            else:
+                # Ambil nama file dari URL
+                parsed = urlparse(url)
+                path_name = os.path.basename(unquote(parsed.path))
+                if path_name and ("." in path_name):
+                    filename = path_name
+                else:
+                    filename = f"model_{int(time.time())}.safetensors"
+
+            smart_download(url, target_folder / filename, desc=f"[{current_category.upper()}] {filename}")
+            total_processed += 1
+
+    if total_processed > 0:
+        print(f"{GREEN}✓ Selesai memproses {total_processed} asset dari {models_file.name}.{RESET}")
 
 def launch_webui(forge_dir, extra_args):
     print(f"\n{BOLD}[5/5] Menjalankan Forge Neo WebUI...{RESET}")
@@ -122,6 +230,8 @@ def main():
     parser = argparse.ArgumentParser(description="Forge Neo Launcher untuk Colab T4 GPU")
     parser.add_argument("--dir", default="/content/forge-neo" if os.path.exists("/content") else "./forge-neo", 
                         help="Lokasi instalasi Forge Neo")
+    parser.add_argument("--models-file", default=None,
+                        help="Path ke file models.txt (default: models.txt di direktori script)")
     parser.add_argument("--model-url", default=None, 
                         help="URL langsung ke file model (.safetensors) untuk diunduh otomatis")
     parser.add_argument("--starter-model", action="store_true",
@@ -136,7 +246,13 @@ def main():
     setup_directories(forge_path)
     install_dependencies()
 
-    # Cek & Unduh Model jika diminta
+    # 1. Proses models.txt jika tersedia
+    script_dir = Path(__file__).resolve().parent
+    models_file = Path(args.models_file) if args.models_file else (script_dir / "models.txt")
+    if models_file.exists():
+        parse_models_file(models_file, forge_path)
+
+    # 2. Proses --model-url jika diberikan via CLI
     models_dir = forge_path / "models" / "Stable-diffusion"
     models_dir.mkdir(parents=True, exist_ok=True)
     
@@ -144,14 +260,15 @@ def main():
         filename = args.model_url.split("/")[-1].split("?")[0] or "custom_model.safetensors"
         if not filename.endswith(".safetensors") and not filename.endswith(".ckpt"):
             filename += ".safetensors"
-        download_file(args.model_url, models_dir / filename, desc="Model Checkpoint")
-    elif args.starter_model:
-        existing = list(models_dir.glob("*.safetensors")) + list(models_dir.glob("*.ckpt"))
-        if not existing:
-            starter_url = "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors"
-            download_file(starter_url, models_dir / "DreamShaper_8_pruned.safetensors", desc="Starter Model (DreamShaper 8)")
-        else:
-            print(f"{GREEN}✓ Model sudah ada di direktori: {[f.name for f in existing]}{RESET}")
+        smart_download(args.model_url, models_dir / filename, desc="[CHECKPOINT] Custom CLI")
+
+    # 3. Fallback starter model jika folder checkpoint masih kosong
+    existing_checkpoints = list(models_dir.glob("*.safetensors")) + list(models_dir.glob("*.ckpt"))
+    if not existing_checkpoints and args.starter_model:
+        starter_url = "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors"
+        smart_download(starter_url, models_dir / "DreamShaper_8_pruned.safetensors", desc="[CHECKPOINT] Starter DreamShaper 8")
+    elif existing_checkpoints:
+        print(f"\n{GREEN}✓ Checkpoint model terdeteksi di Forge: {[f.name for f in existing_checkpoints]}{RESET}")
 
     launch_webui(forge_path, unknown)
 
