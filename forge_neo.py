@@ -17,8 +17,12 @@ import subprocess
 import shutil
 import time
 import argparse
+import json
 from pathlib import Path
 from urllib.parse import urlparse, unquote
+
+# Civitai API Key Default
+DEFAULT_CIVITAI_KEY = "916ff2c247a9be5f8f3b0d3974af7863"
 
 # Styling terminal
 CYAN = "\033[96m"
@@ -180,8 +184,75 @@ def perform_full_installation(forge_path, force=False):
     mark_installed(forge_path)
     print(f"\n{GREEN}{BOLD}🎉 Instalasi Forge Neo Selesai 100%!{RESET}\n")
 
-def smart_download(url, dest_file, desc="Asset"):
-    """Download menggunakan aria2c (jika ada) atau curl dengan resume support."""
+def configure_civitai_api(forge_path, api_key):
+    """Mengintegrasikan Civitai API Key ke CivBrowser, SD-Hub, dan WebUI settings."""
+    if not api_key:
+        return
+
+    print(f"\n{BOLD}🔑 Mengonfigurasi Civitai API Key ke CivBrowser & SD-Hub...{RESET}")
+    
+    # 1. Update config.json di root WebUI Forge (untuk CivBrowser & UI)
+    config_file = forge_path / "config.json"
+    config_data = {}
+    if config_file.exists():
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+        except Exception:
+            config_data = {}
+
+    config_data["civsfz_api_key"] = api_key
+    config_data["civitai_api_key"] = api_key
+    config_data["sd_hub_civitai_api_key"] = api_key
+    config_data["sdhub_civitai_api_key"] = api_key
+
+    try:
+        with open(config_file, "w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=2)
+        print(f"{GREEN}✓ API Key disematkan ke config.json (CivBrowser & WebUI).{RESET}")
+    except Exception as e:
+        print(f"{YELLOW}Warning saat menulis config.json: {e}{RESET}")
+
+    # 2. Update konfigurasi token SD-Hub
+    sd_hub_dirs = [
+        forge_path,
+        forge_path / "extensions" / "sd-hub",
+        forge_path / "extensions" / "sdhub"
+    ]
+    token_filenames = [
+        ".sd-hub-token.json",
+        "sd-hub-token.json",
+        ".sd-hub-config.json",
+        "sd-hub-config.json"
+    ]
+    token_payload = {
+        "civitai": api_key,
+        "civitai_api_key": api_key,
+        "civitai_token": api_key,
+        "token": api_key
+    }
+
+    for d in sd_hub_dirs:
+        if d.exists():
+            for fname in token_filenames:
+                t_path = d / fname
+                try:
+                    existing = {}
+                    if t_path.exists():
+                        try:
+                            with open(t_path, "r", encoding="utf-8") as f:
+                                existing = json.load(f)
+                        except Exception:
+                            existing = {}
+                    existing.update(token_payload)
+                    with open(t_path, "w", encoding="utf-8") as f:
+                        json.dump(existing, f, indent=2)
+                except Exception:
+                    pass
+    print(f"{GREEN}✓ API Key berhasil dikonfigurasi untuk SD-Hub.{RESET}")
+
+def smart_download(url, dest_file, desc="Asset", civitai_key=None):
+    """Download menggunakan aria2c (jika ada) atau curl dengan resume support dan Civitai token auth."""
     dest_file = Path(dest_file)
     dest_file.parent.mkdir(parents=True, exist_ok=True)
     
@@ -190,6 +261,14 @@ def smart_download(url, dest_file, desc="Asset"):
         size_mb = dest_file.stat().st_size / (1024 * 1024)
         print(f"{GREEN}✓ {desc} sudah ada: {dest_file.name} ({size_mb:.1f} MB) -> Dilewati.{RESET}")
         return
+
+    # Sertakan Civitai token jika URL dari civitai.com
+    headers = []
+    if civitai_key and "civitai.com" in url:
+        if "token=" not in url:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}token={civitai_key}"
+        headers.append(f"Authorization: Bearer {civitai_key}")
 
     print(f"Mengunduh {desc}: {dest_file.name}...")
     
@@ -200,8 +279,10 @@ def smart_download(url, dest_file, desc="Asset"):
             "-c", "-x", "16", "-s", "16", "-k", "1M",
             "-d", str(dest_file.parent),
             "-o", dest_file.name,
-            url
         ]
+        for h in headers:
+            cmd.extend(["--header", h])
+        cmd.append(url)
         res = subprocess.run(cmd)
         if res.returncode == 0:
             print(f"{GREEN}✓ Selesai mengunduh {desc}: {dest_file.name}{RESET}")
@@ -210,11 +291,14 @@ def smart_download(url, dest_file, desc="Asset"):
             print(f"{YELLOW}aria2c gagal, mencoba fallback ke curl...{RESET}")
 
     # Fallback curl
-    cmd = ["curl", "-L", "-C", "-", "-o", str(dest_file), url]
+    cmd = ["curl", "-L", "-C", "-"]
+    for h in headers:
+        cmd.extend(["-H", h])
+    cmd.extend(["-o", str(dest_file), url])
     subprocess.run(cmd, check=True)
     print(f"{GREEN}✓ Selesai mengunduh {desc}: {dest_file.name}{RESET}")
 
-def parse_models_file(models_file_path, forge_path):
+def parse_models_file(models_file_path, forge_path, civitai_key=None):
     """Membaca models.txt dan mendownload asset baru."""
     models_file = Path(models_file_path)
     if not models_file.exists():
@@ -276,7 +360,7 @@ def parse_models_file(models_file_path, forge_path):
                 else:
                     filename = f"model_{int(time.time())}.safetensors"
 
-            smart_download(url, target_folder / filename, desc=f"[{current_category.upper()}] {filename}")
+            smart_download(url, target_folder / filename, desc=f"[{current_category.upper()}] {filename}", civitai_key=civitai_key)
             total_processed += 1
 
 def setup_extensions(forge_path, extensions_file_path, update=False):
@@ -344,7 +428,7 @@ def setup_extensions(forge_path, extensions_file_path, update=False):
     if total_ext > 0:
         print(f"{GREEN}✓ Seluruh ekstensi ({total_ext}) siap digunakan!{RESET}")
 
-def launch_webui(forge_dir, extra_args, has_gpu=True):
+def launch_webui(forge_dir, extra_args, has_gpu=True, civitai_key=None):
     print(f"\n{BOLD}[5/5] Menjalankan Forge Neo WebUI...{RESET}")
     
     # Argumen optimasi Google Colab
@@ -357,6 +441,10 @@ def launch_webui(forge_dir, extra_args, has_gpu=True):
         "--skip-version-check",              # Nonaktifkan version check warning
     ]
     
+    # Sertakan Civitai API key untuk CivBrowser
+    if civitai_key:
+        launch_args.extend(["--civsfz-api-key", civitai_key])
+
     if has_gpu:
         launch_args.extend([
             "--cuda-stream",                 # Optimasi stream CUDA
@@ -372,11 +460,14 @@ def launch_webui(forge_dir, extra_args, has_gpu=True):
     if extra_args:
         launch_args.extend(extra_args)
         
-    # Pastikan env var nonaktifkan TF diteruskan ke child process
+    # Pastikan env var nonaktifkan TF & Civitai API diteruskan ke child process
     env = os.environ.copy()
     env["TRANSFORMERS_NO_TF"] = "1"
     env["USE_TF"] = "0"
     env["TF_ENABLE_ONEDNN_OPTS"] = "0"
+    if civitai_key:
+        env["CIVITAI_API_KEY"] = civitai_key
+        env["CIVITAI_TOKEN"] = civitai_key
 
     print(f"Perintah eksekusi:")
     print(f"{CYAN}{' '.join(launch_args)}{RESET}\n")
@@ -394,6 +485,8 @@ def main():
                         help="Path ke file models.txt")
     parser.add_argument("--extensions-file", default=None,
                         help="Path ke file extensions.txt")
+    parser.add_argument("--civitai-api-key", default=DEFAULT_CIVITAI_KEY,
+                        help="Civitai API Key untuk CivBrowser, SD-Hub, dan download model")
     parser.add_argument("--model-url", default=None, 
                         help="URL file model (.safetensors) langsung")
     parser.add_argument("--starter-model", action="store_true",
@@ -425,21 +518,24 @@ def main():
 
     script_dir = Path(__file__).resolve().parent
 
-    # 1. Cek & Unduh model dari models.txt
+    # 1. Konfigurasi Civitai API Key ke CivBrowser & SD-Hub
+    configure_civitai_api(forge_path, args.civitai_api_key)
+
+    # 2. Cek & Unduh model dari models.txt
     models_file = Path(args.models_file) if args.models_file else (script_dir / "models.txt")
     if models_file.exists():
-        parse_models_file(models_file, forge_path)
+        parse_models_file(models_file, forge_path, civitai_key=args.civitai_api_key)
 
-    # 2. Cek --model-url CLI
+    # 3. Cek --model-url CLI
     models_dir = forge_path / "models" / "Stable-diffusion"
     models_dir.mkdir(parents=True, exist_ok=True)
     if args.model_url:
         filename = args.model_url.split("/")[-1].split("?")[0] or "custom_model.safetensors"
         if not filename.endswith(".safetensors") and not filename.endswith(".ckpt"):
             filename += ".safetensors"
-        smart_download(args.model_url, models_dir / filename, desc="[CHECKPOINT] Custom CLI")
+        smart_download(args.model_url, models_dir / filename, desc="[CHECKPOINT] Custom CLI", civitai_key=args.civitai_api_key)
 
-    # 3. Fallback starter model jika folder checkpoint kosong
+    # 4. Fallback starter model jika folder checkpoint kosong
     existing_checkpoints = list(models_dir.glob("*.safetensors")) + list(models_dir.glob("*.ckpt"))
     if not existing_checkpoints and args.starter_model:
         starter_url = "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors"
@@ -447,13 +543,16 @@ def main():
     elif existing_checkpoints:
         print(f"{GREEN}✓ Checkpoint model terdeteksi di Forge: {[f.name for f in existing_checkpoints]}{RESET}")
 
-    # 4. Cek & Pasang ekstensi dari extensions.txt
+    # 5. Cek & Pasang ekstensi dari extensions.txt
     extensions_file = Path(args.extensions_file) if args.extensions_file else (script_dir / "extensions.txt")
     if extensions_file.exists():
         setup_extensions(forge_path, extensions_file, update=args.update)
 
-    # 5. Langsung jalankan WebUI!
-    launch_webui(forge_path, unknown, has_gpu=has_gpu)
+    # Pastikan konfigurasi token SD-Hub diperbarui kembali setelah ekstensi terkloning
+    configure_civitai_api(forge_path, args.civitai_api_key)
+
+    # 6. Langsung jalankan WebUI!
+    launch_webui(forge_path, unknown, has_gpu=has_gpu, civitai_key=args.civitai_api_key)
 
 if __name__ == "__main__":
     main()
