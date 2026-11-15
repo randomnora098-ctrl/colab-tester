@@ -249,43 +249,70 @@ def configure_civitai_api(forge_path, api_key):
             except Exception as e:
                 print(f"{YELLOW}Warning patch civsfz_api: {e}{RESET}")
 
-    # 2. Konfigurasi token untuk SD-Hub di dalam folder ekstensi dan root
+    # 2. Konfigurasi token untuk SD-Hub (di dalam folder ekstensi sd-hub dan root)
     sd_hub_dirs = [
-        forge_path,
         forge_path / "extensions" / "sd-hub",
-        forge_path / "extensions" / "sdhub"
+        forge_path / "extensions" / "sdhub",
+        forge_path
     ]
-    token_filenames = [
-        ".sd-hub-token.json",
-        "sd-hub-token.json",
-        ".sd-hub-config.json",
-        "sd-hub-config.json"
-    ]
-    token_payload = {
-        "civitai": api_key,
-        "civitai_api_key": api_key,
-        "civitai_token": api_key,
-        "token": api_key
-    }
 
     for d in sd_hub_dirs:
-        if d.exists():
-            for fname in token_filenames:
-                t_path = d / fname
-                try:
-                    existing = {}
-                    if t_path.exists():
-                        try:
-                            with open(t_path, "r", encoding="utf-8") as f:
-                                existing = json.load(f)
-                        except Exception:
-                            existing = {}
-                    existing.update(token_payload)
-                    with open(t_path, "w", encoding="utf-8") as f:
-                        json.dump(existing, f, indent=2)
-                except Exception:
-                    pass
-    print(f"{GREEN}✓ API Key dikonfigurasi untuk SD-Hub ({api_key[:6]}...{api_key[-4:]}).{RESET}")
+        if not d.exists():
+            continue
+
+        # A. Tulis format yang tepat ke .sd-hub-config.json
+        for fname in [".sd-hub-config.json", "sd-hub-config.json"]:
+            cfg_file = d / fname
+            try:
+                data = {}
+                if cfg_file.exists():
+                    try:
+                        data = json.loads(cfg_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        data = {}
+                tokens = data.get("Token", {})
+                tokens["civitai-api-key"] = api_key
+                data["Token"] = tokens
+                cfg_file.write_text(json.dumps(data, indent=4), encoding="utf-8")
+                print(f"{GREEN}✓ Menulis Token civitai-api-key ke {d.name}/{cfg_file.name}.{RESET}")
+            except Exception as e:
+                print(f"{YELLOW}Warning saat update {cfg_file}: {e}{RESET}")
+
+        # B. Patch sdhub/config.py
+        cfg_py = d / "sdhub" / "config.py"
+        if cfg_py.exists():
+            try:
+                text = cfg_py.read_text(encoding="utf-8")
+                target = "v = {k[0]: T.get(k[0], '') for k in Keys.values()}"
+                replacement = (
+                    "v = {k[0]: T.get(k[0], '') for k in Keys.values()}\n"
+                    f"    if not v.get('civitai-api-key'): v['civitai-api-key'] = '{api_key}'"
+                )
+                if target in text and f"'{api_key}'" not in text:
+                    text = text.replace(target, replacement)
+                    cfg_py.write_text(text, encoding="utf-8")
+                    print(f"{GREEN}✓ Patch sdhub/config.py: default Civitai API key aktif.{RESET}")
+            except Exception as e:
+                print(f"{YELLOW}Warning patch sdhub/config.py: {e}{RESET}")
+
+        # C. Patch sdhub/downloaderTab.py
+        dl_py = d / "sdhub" / "downloaderTab.py"
+        if dl_py.exists():
+            try:
+                text = dl_py.read_text(encoding="utf-8")
+                target = "_, HFR, CAK, _, _ = LoadToken('downloader')"
+                replacement = (
+                    "_, HFR, CAK, _, _ = LoadToken('downloader')\n"
+                    f"    if not CAK: CAK = '{api_key}'"
+                )
+                if target in text and f"'{api_key}'" not in text:
+                    text = text.replace(target, replacement)
+                    dl_py.write_text(text, encoding="utf-8")
+                    print(f"{GREEN}✓ Patch sdhub/downloaderTab.py: CAK default disematkan.{RESET}")
+            except Exception as e:
+                print(f"{YELLOW}Warning patch sdhub/downloaderTab.py: {e}{RESET}")
+
+    print(f"{GREEN}✓ API Key berhasil dikonfigurasi & di-patch untuk SD-Hub ({api_key[:6]}...{api_key[-4:]}).{RESET}")
 
 def smart_download(url, dest_file, desc="Asset", civitai_key=None):
     """Download menggunakan aria2c (jika ada) atau curl dengan resume support dan Civitai token auth."""
