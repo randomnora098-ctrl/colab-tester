@@ -369,14 +369,29 @@ def parse_models_file(models_file_path, forge_path, civitai_key=None):
 
     print(f"\n{BOLD}[3/5] Memeriksa Model & Asset dari {models_file.name}...{RESET}")
     
+    # Ensure text_encoder and clip directories are linked/accessible for Forge
+    text_encoder_dir = forge_path / "models" / "text_encoder"
+    clip_dir = forge_path / "models" / "clip"
+    text_encoder_dir.mkdir(parents=True, exist_ok=True)
+    if not clip_dir.exists():
+        try:
+            clip_dir.symlink_to(text_encoder_dir.resolve(), target_is_directory=True)
+        except Exception:
+            clip_dir.mkdir(parents=True, exist_ok=True)
+
     category_map = {
         "checkpoints": forge_path / "models" / "Stable-diffusion",
         "checkpoint": forge_path / "models" / "Stable-diffusion",
         "models": forge_path / "models" / "Stable-diffusion",
+        "diffusion_models": forge_path / "models" / "diffusion_models",
+        "diffusion_model": forge_path / "models" / "diffusion_models",
         "loras": forge_path / "models" / "Lora",
         "lora": forge_path / "models" / "Lora",
         "vaes": forge_path / "models" / "VAE",
         "vae": forge_path / "models" / "VAE",
+        "text_encoders": text_encoder_dir,
+        "text_encoder": text_encoder_dir,
+        "clip": text_encoder_dir,
         "controlnets": forge_path / "models" / "ControlNet",
         "controlnet": forge_path / "models" / "ControlNet",
         "upscalers": forge_path / "models" / "ESRGAN",

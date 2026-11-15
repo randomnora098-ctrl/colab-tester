@@ -22,8 +22,16 @@ https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safet
 
 [vaes]
 # Masukkan link VAE di sini (disimpan ke models/VAE)
-# Contoh:
-# https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors
+# MOSS-Image VAE (FLUX.2 VAE ~335MB)
+https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/vae/flux2-vae.safetensors
+
+[text_encoders]
+# Masukkan link Text Encoder / CLIP di sini (disimpan ke models/text_encoder dan models/clip)
+# MOSS-Image Text Encoder (Qwen3.5 9B):
+# Rekomendasi untuk Colab T4 16GB VRAM: INT8 (~9.75 GB) agar muat di memori tanpa OOM
+https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_int8_convrot.safetensors
+# Alternatif Full Precision BF16 (~19.3 GB, sangat berat untuk T4):
+# https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_bf16.safetensors
 
 [controlnets]
 # Masukkan link model ControlNet di sini (disimpan ke models/ControlNet)
