@@ -552,11 +552,18 @@ def launch_webui(forge_dir, extra_args, has_gpu=True, civitai_key=None):
     if extra_args:
         launch_args.extend(extra_args)
         
-    # Pastikan env var nonaktifkan TF & Civitai API diteruskan ke child process
+    # Pastikan env var nonaktifkan TF, optimasi CUDA allocator, & Civitai API diteruskan ke child process
     env = os.environ.copy()
     env["TRANSFORMERS_NO_TF"] = "1"
     env["USE_TF"] = "0"
     env["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
+    # Anti-Crash Memory Protection (CUDA Allocator & Garbage Collection)
+    # Mencegah memory fragmentation dan OOM saat inferensi / loading Text Encoder berat
+    if has_gpu:
+        env["PYTORCH_CUDA_ALLOC_CONF"] = "garbage_collection_threshold:0.8,max_split_size_mb:128"
+        env["CUDA_MODULE_LOADING"] = "LAZY"  # Mengurangi pemakaian VRAM saat startup
+
     if civitai_key:
         env["CIVITAI_API_KEY"] = civitai_key
         env["CIVITAI_TOKEN"] = civitai_key

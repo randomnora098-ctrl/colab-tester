@@ -90,6 +90,10 @@ Selama pengembangan di lingkungan Google Colab (Python 3.13), terdapat 5 masalah
    - *Penyebab:* SD-Hub tidak membaca `config.json` milik WebUI, melainkan membaca file khususnya sendiri di `.sd-hub-config.json`.
    - *Solusi:* Membuat file `/content/forge-neo/extensions/sd-hub/.sd-hub-config.json` dengan struktur JSON yang sesuai standar SD-Hub.
 
+6. **Crash CUDA Out of Memory (OOM) & Memory Fragmentation pada PyTorch/Transformers**
+   - *Penyebab:* Alokasi memori VRAM GPU T4 (16 GB) mudah terfragmentasi saat memuat model besar atau saat beralih antara Text Encoder (Qwen/CLIP) dan DiT/UNet, menyebabkan crash alokasi `torch.cuda.OutOfMemoryError`.
+   - *Solusi:* Mengatur environment variable `PYTORCH_CUDA_ALLOC_CONF="garbage_collection_threshold:0.8,max_split_size_mb:128"` untuk memaksa PyTorch membersihkan cache memori lebih awal dan membatasi fragmentasi blok memori, serta `CUDA_MODULE_LOADING="LAZY"` untuk meminimalkan beban memori saat inisialisasi.
+
 ---
 
 ## 5. Panduan Setup Ulang Setelah Install Ulang OS (Post-Reinstall Recovery Guide)
