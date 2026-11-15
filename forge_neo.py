@@ -372,12 +372,27 @@ def parse_models_file(models_file_path, forge_path, civitai_key=None):
     # Ensure text_encoder and clip directories are linked/accessible for Forge
     text_encoder_dir = forge_path / "models" / "text_encoder"
     clip_dir = forge_path / "models" / "clip"
+    vae_dir = forge_path / "models" / "VAE"
     text_encoder_dir.mkdir(parents=True, exist_ok=True)
+    vae_dir.mkdir(parents=True, exist_ok=True)
     if not clip_dir.exists():
         try:
             clip_dir.symlink_to(text_encoder_dir.resolve(), target_is_directory=True)
         except Exception:
             clip_dir.mkdir(parents=True, exist_ok=True)
+
+    # Bersihkan file MOSS-Image yang terlalu berat jika masih ada dari run sebelumnya
+    for heavy_file in [
+        text_encoder_dir / "qwen3.5_9b_int8_convrot.safetensors",
+        text_encoder_dir / "qwen3.5_9b_bf16.safetensors",
+        vae_dir / "flux2-vae.safetensors",
+    ]:
+        if heavy_file.exists():
+            try:
+                heavy_file.unlink()
+                print(f"{YELLOW}🗑 Menghapus file MOSS-Image lama untuk menghemat storage/VRAM: {heavy_file.name}{RESET}")
+            except Exception:
+                pass
 
     category_map = {
         "checkpoints": forge_path / "models" / "Stable-diffusion",
